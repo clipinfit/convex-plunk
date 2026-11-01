@@ -44,17 +44,10 @@ Repeat the enqueue command with the same key and message. It returns the same re
 
 ## Mount in another application
 
-To use the component in another local Convex app, first build a tarball from this checkout:
+Install the published package in your Convex application. It requires Convex 1.49 or later within major version 1.
 
 ```sh
-cd packages/convex-plunk
-npm pack
-```
-
-In the other application, install the resulting tarball by its local path. The package requires Convex 1.49 or later within major version 1.
-
-```sh
-bun add /absolute/path/to/clipin-convex-plunk-0.0.1.tgz
+npm install @clipin/convex-plunk
 ```
 
 Mount the component in `convex/convex.config.ts`:

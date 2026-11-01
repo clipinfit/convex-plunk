@@ -2,6 +2,14 @@
 
 Persistent transactional email delivery for Convex and hosted Plunk.
 
+## Install
+
+```sh
+npm install @clipin/convex-plunk
+```
+
+Requires Convex 1.49 or later within major version 1.
+
 ## Mount the component
 
 ```ts
