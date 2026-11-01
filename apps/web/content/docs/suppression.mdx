@@ -1,0 +1,42 @@
+---
+title: Consent and suppression
+description: Preserve existing restrictions before any provider migration.
+---
+
+## Two independent restrictions
+
+`blocked` prevents all sends through this component. Use it for hard bounces, complaints, and explicit all-email blocks.
+
+`marketingUnsubscribed` records a marketing opt-out. It does not block an essential transactional message. The current component only sends transactional emails. Your marketing integration must enforce marketing consent separately.
+
+## Import existing restrictions first
+
+Export historical opt-outs, complaints, and hard bounces from the old provider and your application. Keep a private backup outside version control. Match records by normalized email address and preserve the strongest restriction.
+
+Import a blocked address through an authorized internal mutation:
+
+```ts
+await plunk.setRestriction(ctx, {
+  email: "blocked@example.com",
+  blocked: true,
+  marketingUnsubscribed: true,
+});
+```
+
+For a marketing-only opt-out, set `marketingUnsubscribed: true`. Set `blocked: false` only after confirming there is no existing all-email restriction.
+
+`setRestriction` overwrites both flags. It is not a merge operation. Read the existing restriction with `components.plunk.lib.restriction` and combine old and new restrictions before updating. Never use a routine contact import to clear a denial.
+
+## Preserve denials during normal operation
+
+The worker checks `blocked` immediately before claiming a job. A new block suppresses queued jobs when they are processed. It cannot recall a provider request already in flight.
+
+Ordinary sends omit Plunk's `subscribed` property. A hard-bounce or complaint webhook blocks the address. An unsubscribe webhook sets the marketing restriction without clearing an existing block. A subscribe webhook is recorded but does not clear a denial.
+
+Only an authorized application operation with supporting consent evidence should clear a restriction.
+
+## Keep provider consent in sync
+
+Local restriction imports do not update Plunk contacts. Campaign selection, provider contact sync, preference pages, and legacy unsubscribe links remain application responsibilities.
+
+The component does not include a contact migration tool. Reconcile provider restrictions periodically because failed workflow webhooks are not automatically retried. See [webhook setup](/docs/webhooks).

@@ -1,0 +1,78 @@
+---
+title: API reference
+description: Options, message fields, and trusted server methods.
+---
+
+## Constructor
+
+```ts
+const plunk = new Plunk(components.plunk, options);
+```
+
+Mount one component per Plunk project. Credentials stay in the host worker runtime. The component stores message content and recipient addresses, so protect access to its records.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `testMode` | `true` | Record `test` without a provider request |
+| `apiKey` | `process.env.PLUNK_API_KEY` in the worker | Secret provider key |
+| `apiBaseUrl` | `https://next-api.useplunk.com` | HTTPS API origin or base path |
+| `webhookSecret` | `process.env.PLUNK_WEBHOOK_SECRET` in the handler | Shared secret for workflow webhooks |
+| `intervalMs` | `1000` | Minimum dispatch spacing; must be at least 100 ms |
+
+The base URL must use HTTPS and cannot include credentials, a query, or a fragment. Verify the hostname for your Plunk account before enabling live sends.
+
+## `sendEmail(ctx, args)`
+
+Queues a job and returns `Promise<string>` containing the component record ID. The context must provide `runMutation`.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `worker` | Yes | Internal action reference exported by `plunk.worker()` |
+| `idempotencyKey` | Yes | Stable business event key, 1–200 characters |
+| `from` | Yes | One plain sender address |
+| `to` | Yes | One plain recipient address |
+| `subject` | Yes | Email subject |
+| `html` | Yes | Rendered HTML content |
+| `replyTo` | No | One plain reply address |
+| `headers` | No | Map of additional headers; reserved transport headers are rejected |
+| `scheduledAt` | No | Future Unix timestamp in milliseconds |
+
+The recipient address is trimmed and lowercased. The message validator rejects header injection and unsupported address formats. Display-name senders, recipient arrays, attachments, `text`, provider template IDs, and campaign fields are not supported.
+
+A repeated key returns the existing record when the message, worker, and test mode match. A conflicting payload throws. A repeated key does not change its existing schedule or resend a completed message.
+
+## Client methods
+
+| Method | Result |
+| --- | --- |
+| `worker()` | Internal action definition; export it from your Convex application |
+| `getStatus(ctx, id)` | Full email record, or `null`; requires `runQuery` |
+| `cancel(ctx, id)` | `true` if a queued job was cancelled, otherwise `false` |
+| `setRestriction(ctx, { email, blocked, marketingUnsubscribed })` | Upserts local restrictions; does not update Plunk contacts |
+| `handleWebhook(ctx, request)` | Authenticated webhook response; requires `runQuery` and `runMutation` on the context |
+
+The local record ID is distinct from `providerId`. Do not treat an `accepted` state as proof of delivery.
+
+## Component functions
+
+Call these through `ctx.runQuery` or `ctx.runMutation` using the generated `components.plunk.lib` reference. They are trusted server operations. Do not expose them without application authorization.
+
+| Function | Arguments | Result |
+| --- | --- | --- |
+| `list` | `{ paginationOpts: { numItems, cursor } }` | Paginated records, newest first |
+| `restriction` | `{ email }` | Local restriction or `null` |
+| `resolveUncertain` | `{ id, resolution }` | Records a verified acceptance or confirmed failure |
+| `cleanup` | `{ before }` | Number of completed records deleted |
+
+A resolution is either `{ kind: "accepted", providerId }` or `{ kind: "failed", reason }`. It only applies to an `uncertain` record and never resends it.
+
+The component also exposes queue lifecycle functions for its host worker. Use the client methods for ordinary application integration.
+
+## Test helper
+
+```ts
+import { register } from "@clipin/convex-plunk/test";
+register(t);
+```
+
+`t` is a `convex-test` instance. The default mount name is `plunk`. The helper also accepts an explicit mount name.

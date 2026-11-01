@@ -1,0 +1,31 @@
+---
+title: Overview
+description: Persistent transactional email delivery for Convex and hosted Plunk.
+---
+
+convex-plunk stores email jobs in a Convex component. A worker in your application sends each message through Plunk. The component keeps the schedule, delivery state, and recipient restrictions.
+
+## Start here
+
+- [Run the local example](/docs/getting-started) without a provider account.
+- [Keep your React Email templates](/docs/react-email) and pass rendered HTML to the queue.
+- [Inspect delivery states](/docs/delivery) and resolve uncertain outcomes.
+
+## What belongs where
+
+| Responsibility | Owner |
+| --- | --- |
+| Email queue, schedule, cancellation, local restrictions | convex-plunk |
+| HTML templates, business event keys, authorization | Your application |
+| Sending domains, DNS verification, email transport, account billing | Plunk |
+| Marketing campaigns, segments, contact sync, preference pages | Your application and Plunk; not implemented in this component |
+
+The adapter sends one transactional email per job. Campaigns, segments, and contact synchronization remain application responsibilities.
+
+## How a message moves
+
+Your mutation queues a message and returns its local record ID. The Convex scheduler invokes your internal worker. The worker checks restrictions, claims the job, and calls Plunk. A successful API response changes the state to `accepted`. A correlated delivery webhook can change it to `delivered`.
+
+The default test mode skips the HTTP request and records `test`. It does not verify provider acceptance or inbox delivery.
+
+This is an independent Apache-2.0 component maintained by Clipin. It is not an official Convex or Plunk product.

@@ -1,0 +1,55 @@
+---
+title: Delivery and retries
+description: Understand recorded outcomes and review ambiguous sends.
+---
+
+## States
+
+| State | Meaning |
+| --- | --- |
+| `queued` | Waiting for its schedule or the dispatch gate |
+| `processing` | Claimed by a worker |
+| `test` | Completed without an HTTP request |
+| `accepted` | The provider API accepted the message |
+| `delivered` | A delivery webhook was correlated with the provider ID |
+| `failed` | A definitive failure or retry budget exhaustion |
+| `uncertain` | The send outcome cannot be established safely |
+| `cancelled` | Cancelled before processing |
+| `suppressed` | A local block prevented sending |
+
+A delivery event does not prove inbox placement or that a recipient read the message. Bounce and complaint events update recipient restrictions. They do not add a separate bounced state to the email record.
+
+## Retry policy
+
+HTTP 429 retries keep the same local record and provider key. Delays are bounded between one second and one hour. The budget is at most five claims, with a 23-hour elapsed-time guard.
+
+Most HTTP 4xx responses stop as `failed`. HTTP 409, HTTP 5xx, network failures, and malformed success responses become `uncertain`. A claimed worker that exceeds its 60-second lease also becomes `uncertain`.
+
+A recovery job can reschedule a worker that failed before claiming its message. It permits up to five recovery schedules. This is separate from retrying a provider request.
+
+## Why uncertain sends stop
+
+A timeout can happen after the provider accepted an email. Automatically repeating that request could send a duplicate. The adapter therefore stops and requires inspection. It does not promise exactly-once delivery or automatic cross-provider fallback.
+
+The local business key prevents duplicate queue entries while the record exists. Provider idempotency is a separate control with its own retention window. See [Plunk's idempotency guide](https://docs.useplunk.com/guides/idempotency).
+
+## Resolve an uncertain record
+
+Check provider records before making a decision. Use an authorized internal mutation to record the verified result:
+
+```ts
+await ctx.runMutation(components.plunk.lib.resolveUncertain, {
+  id: emailId,
+  resolution: { kind: "accepted", providerId: verifiedProviderId },
+});
+```
+
+If you can establish a failure, record `{ kind: "failed", reason: "..." }`. Resolution does not send another email. A new send requires an explicit application decision and a new key.
+
+## Retention
+
+Call `components.plunk.lib.cleanup` from an authorized internal mutation with `{ before }`. The cutoff must be at least 24 hours old. Each call deletes at most 50 records per completed state. Repeat bounded calls as needed.
+
+Cleanup preserves queued, processing, and uncertain records. It never deletes recipient restrictions. It does not clean webhook events. No automatic cleanup job is installed.
+
+Retain records for your application's full replay horizon. Once cleanup removes a business key, that key can create a new message again.

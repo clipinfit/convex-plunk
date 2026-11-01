@@ -1,0 +1,103 @@
+---
+title: Run the local example
+description: Queue a test message without a Plunk account.
+---
+
+## Requirements
+
+Use Node.js 22 or later and Bun 1.4.0. Start from an existing local checkout of this repository.
+
+## Install and build
+
+Run these commands from the repository root:
+
+```sh
+bun install --frozen-lockfile
+bun run build
+```
+
+## Start the example backend
+
+Keep this process running so the scheduler can execute jobs:
+
+```sh
+CONVEX_AGENT_MODE=anonymous bunx convex dev
+```
+
+The example mounts the component and exports an internal worker. It defaults to offline mode unless `PLUNK_TEST_MODE=false` is set in the host deployment. No Plunk key is required for offline mode.
+
+In another terminal at the repository root, queue a test message:
+
+```sh
+bunx convex run emails:enqueue '{"key":"local-welcome:001","to":"reader@example.com"}'
+```
+
+The command returns a local email record ID. Use that value in the status command:
+
+```sh
+bunx convex run emails:status '{"id":"REPLACE_WITH_RETURNED_ID"}'
+```
+
+After the worker runs, the record has `state: "test"` and `testMode: true`. An immediate query can still show `queued` or `processing`. Query again after the worker completes.
+
+Repeat the enqueue command with the same key and message. It returns the same record. Use a new business event key for a new message.
+
+## Mount in another application
+
+To use the component in another local Convex app, first build a tarball from this checkout:
+
+```sh
+cd packages/convex-plunk
+npm pack
+```
+
+In the other application, install the resulting tarball by its local path. The package requires Convex 1.49 or later within major version 1.
+
+```sh
+bun add /absolute/path/to/clipin-convex-plunk-0.0.1.tgz
+```
+
+Mount the component in `convex/convex.config.ts`:
+
+```ts
+import { defineApp } from "convex/server";
+import plunk from "@clipin/convex-plunk/convex.config.js";
+
+const app = defineApp();
+app.use(plunk);
+export default app;
+```
+
+Run Convex code generation for that application. Then create `convex/emails.ts`:
+
+```ts
+import { Plunk } from "@clipin/convex-plunk";
+import { components, internal } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
+
+const plunk = new Plunk(components.plunk);
+export const deliver = plunk.worker();
+
+export const welcome = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<string> =>
+    plunk.sendEmail(ctx, {
+      worker: internal.emails.deliver,
+      idempotencyKey: "welcome:user-123:v1",
+      from: "hello@example.com",
+      to: "reader@example.com",
+      subject: "Welcome",
+      html: "<p>Your workspace is ready.</p>",
+    }),
+});
+```
+
+Replace the example key with a stable identifier for your business event. Keep sender and content selection in trusted application code. Add authorization before exposing any public operation.
+
+## Connect Plunk
+
+Keep test mode enabled while you develop your integration. Verify a sending domain in Plunk. Set `PLUNK_API_KEY` in the target Convex deployment. Create the instance with `{ testMode: false }` and queue a new key to a mailbox you control.
+
+Use the same instance for queueing and the worker. A message keeps the test-mode value from when it was queued. Changing the constructor does not turn old test jobs into live sends.
+
+Configure [workflow webhooks](/docs/webhooks) to track delivery events and recipient restrictions.

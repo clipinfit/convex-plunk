@@ -1,0 +1,68 @@
+---
+title: Use React Email
+description: Keep templates and local previews with rendered HTML.
+---
+
+React Email templates remain ordinary React components. Your preview server remains independent of the delivery provider. The component receives the resulting HTML string.
+
+## Render in a Node action
+
+Install React Email dependencies in your application, as you do for your current templates. Render the template in a Node action, then pass the HTML to an internal mutation that queues it.
+
+```ts
+// convex/renderWelcome.ts
+"use node";
+
+import { render } from "@react-email/render";
+import { createElement } from "react";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+import { WelcomeEmail } from "../emails/welcome";
+
+export const welcome = internalAction({
+  args: { userId: v.string(), to: v.string() },
+  handler: async (ctx, args): Promise<string> => {
+    const html = await render(createElement(WelcomeEmail));
+    return ctx.runMutation(internal.emails.queueHtml, {
+      key: `welcome:${args.userId}:v1`,
+      to: args.to,
+      html,
+    });
+  },
+});
+```
+
+`WelcomeEmail` is your existing template. Adapt its props to your application. Add this internal mutation to the `convex/emails.ts` file from the getting-started guide:
+
+```ts
+// Add this import alongside the existing imports.
+import { v } from "convex/values";
+
+export const queueHtml = internalMutation({
+  args: { key: v.string(), to: v.string(), html: v.string() },
+  handler: async (ctx, args): Promise<string> =>
+    plunk.sendEmail(ctx, {
+      worker: internal.emails.deliver,
+      idempotencyKey: args.key,
+      from: "hello@example.com",
+      to: args.to,
+      subject: "Welcome",
+      html: args.html,
+    }),
+});
+```
+
+Keep the worker and mutation in a normal Convex file. A file with `"use node"` must not define Convex mutations.
+
+## Keep the preview workflow
+
+Run your existing React Email preview command. No Plunk account is required to preview the template. The component does not bundle React Email or add an email editor.
+
+The component has no plain-text override. Plunk generates the text alternative. Check that result during live provider validation.
+
+## Review provider-specific content
+
+General layout, styles, and content can stay unchanged. Check any provider-specific unsubscribe placeholders or tracking URLs in your templates. This component does not provide marketing campaigns or preference pages. Preserve old unsubscribe links in your application during any provider migration.
+
+Send a test email to verify how your templates render in the email clients you support.

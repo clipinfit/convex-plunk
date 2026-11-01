@@ -1,0 +1,40 @@
+---
+title: Scheduling and cancellation
+description: Choose the send time in Convex.
+---
+
+## Queue a future message
+
+Set `scheduledAt` inside your internal mutation:
+
+```ts
+const emailId = await plunk.sendEmail(ctx, {
+  worker: internal.emails.deliver,
+  idempotencyKey: "reminder:event-123:v1",
+  from: "hello@example.com",
+  to: "reader@example.com",
+  subject: "Your reminder",
+  html: "<p>Time to get started.</p>",
+  scheduledAt: Date.now() + 60 * 60 * 1000,
+});
+```
+
+The timestamp is Unix time in milliseconds. Convert the user's date and time zone to an absolute timestamp in your application. Do not pass a localized date string or seconds.
+
+Convex owns the schedule. The adapter does not also schedule with Plunk. A future message does not reserve the immediate dispatch queue until that future time.
+
+## Cancel before the worker claims the job
+
+```ts
+const cancelled = await plunk.cancel(ctx, emailId);
+```
+
+`true` means the job was queued and is now cancelled. `false` means it was not queued or no longer exists. The adapter cannot recall a message after processing starts.
+
+There is no reschedule method. Cancel the queued job and create a new job with a new business event key. Reusing the previous key returns its existing record.
+
+## Allow for dispatch delay
+
+Default spacing is one second between claims. The dispatch gate also applies when several scheduled jobs become due together. Provider rate limits can add more delay. The timestamp is the earliest dispatch time, not an inbox delivery guarantee.
+
+Keep the local Convex backend running while testing schedules. A one-shot code generation command does not provide a continuously running local scheduler.

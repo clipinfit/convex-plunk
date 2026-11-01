@@ -1,0 +1,72 @@
+---
+title: Configure workflow webhooks
+description: Receive delivery events and preserve recipient restrictions.
+---
+
+## Add the HTTP route
+
+Export an HTTP action from the same normal Convex file that owns your Plunk instance:
+
+```ts
+import { httpAction } from "./_generated/server";
+
+export const webhook = httpAction((ctx, request) =>
+  plunk.handleWebhook(ctx, request),
+);
+```
+
+Register it in `convex/http.ts`:
+
+```ts
+import { httpRouter } from "convex/server";
+import { webhook } from "./emails";
+
+const http = httpRouter();
+http.route({ path: "/plunk-webhook", method: "POST", handler: webhook });
+export default http;
+```
+
+Use the deployment's Convex HTTP action URL ending in `.convex.site`, followed by `/plunk-webhook`.
+
+## Configure authentication
+
+Set `PLUNK_WEBHOOK_SECRET` in the host Convex deployment. In each Plunk workflow webhook step, set the header `Authorization: Bearer YOUR_SECRET`. Use the same secret on both sides.
+
+This authenticates a shared secret. It is not a provider-signed webhook scheme. The handler rejects requests before processing their body when authentication fails.
+
+## Configure the custom body
+
+Create a separate workflow for each supported trigger. Send a custom JSON body with a literal `type`. Plunk's default body does not contain this field.
+
+For `email.bounce`, use:
+
+```json
+{
+  "type": "email.bounce",
+  "contact": { "email": "{{email}}" },
+  "event": {
+    "emailId": "{{event.emailId}}",
+    "bounceType": "{{event.bounceType}}"
+  }
+}
+```
+
+| Trigger and literal `type` | Required body fields |
+| --- | --- |
+| `email.delivery` | `contact.email`, `event.emailId` for correlation |
+| `email.bounce` | `contact.email`, `event.bounceType`; include `event.emailId` |
+| `email.complaint` | `contact.email`; include `event.emailId` |
+| `contact.unsubscribed` | `contact.email`, `event: {}` |
+| `contact.subscribed` | `contact.email`, `event: {}` |
+
+For delivery and complaint workflows, use the same envelope with the matching literal type and an `event` object containing `emailId`. For contact workflows, use an empty `event` object.
+
+`Transient` bounces do not create a permanent block. `Permanent` bounces and complaints do. A missing or unknown bounce type returns 400 so malformed events are not silently ignored. Configure the email event workflows even if you also receive contact unsubscribe events.
+
+## Validate delivery and failure handling
+
+The receiver deduplicates identical bodies by their hash. It stores selected event fields. Valid processed requests return HTTP 204. Invalid authentication returns 401, missing configuration returns 503, and malformed payloads return 400. Oversized bodies return 413.
+
+Plunk workflow webhooks have no automatic failure retry. Arrange periodic reconciliation against provider state before production use. The component does not yet provide that polling job. See [Plunk's webhook documentation](https://docs.useplunk.com/guides/webhooks).
+
+Test each workflow with a controlled recipient. Confirm that Plunk sends the expected fields and that the endpoint returns 204.
